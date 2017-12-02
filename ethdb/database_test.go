@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func newTestLDB() (*ethdb.LDBDatabase, func()) {
@@ -190,3 +191,107 @@ func testParallelPutGet(db ethdb.Database, t *testing.T) {
 	}
 	pending.Wait()
 }
+
+func TestLdb_Batch_PutGet(t *testing.T) {
+	db, remove := newTestLDB()
+	defer remove()
+	testBatchPutGet(*db,t)
+}
+
+func testBatchPutGet(db ethdb.LDBDatabase, t *testing.T)  {
+	batch := new(leveldb.Batch)
+	for _, v := range test_values {
+		batch.Put([]byte(v), []byte(v))
+	}
+	err := db.LDB().Write(batch, nil)
+	if err != nil {
+		t.Fatalf("batch put write failed: %v", err)
+	}
+
+	for _, v := range test_values {
+		data, err := db.Get([]byte(v))
+		if err != nil {
+			t.Fatalf("get failed: %v", err)
+		}
+		if !bytes.Equal(data, []byte(v)) {
+			t.Fatalf("get returned wrong result, got %q expected %q", string(data), v)
+		}
+	}
+
+	for _, v := range test_values {
+		batch.Put([]byte(v), []byte("?"))
+	}
+	err = db.LDB().Write(batch, nil)
+	if err != nil {
+		t.Fatalf("batch put override failed: %v", err)
+	}
+
+	for _, v := range test_values {
+		data, err := db.Get([]byte(v))
+		if err != nil {
+			t.Fatalf("get failed: %v", err)
+		}
+		if !bytes.Equal(data, []byte("?")) {
+			t.Fatalf("get returned wrong result, got %q expected ?", string(data))
+		}
+	}
+
+	for _, v := range test_values {
+		batch.Delete([]byte(v))
+	}
+	err = db.LDB().Write(batch, nil)
+	if err != nil {
+		t.Fatalf("batch delete write failed: %v", err)
+	}
+	for _, v := range test_values {
+		_, err := db.Get([]byte(v))
+		if err == nil {
+			t.Fatalf("got deleted value %q", v)
+		}
+	}
+}
+
+func TestMemoryDB_Batch_PutGet(t *testing.T) {
+	db, _ := ethdb.NewMemDatabase()
+	testBatchPutGetMemory(db, t)
+}
+
+func testBatchPutGetMemory(db *ethdb.MemDatabase, t *testing.T)  {
+	batch := db.NewBatch()
+	for _, v := range test_values {
+		batch.Put([]byte(v), []byte(v))
+	}
+	err := batch.Write()
+	if err != nil {
+		t.Fatalf("batch put write failed: %v", err)
+	}
+
+	for _, v := range test_values {
+		data, err := db.Get([]byte(v))
+		if err != nil {
+			t.Fatalf("get failed: %v", err)
+		}
+		if !bytes.Equal(data, []byte(v)) {
+			t.Fatalf("get returned wrong result, got %q expected %q", string(data), v)
+		}
+	}
+
+	for _, v := range test_values {
+		batch.Put([]byte(v), []byte("?"))
+	}
+	err = batch.Write()
+	if err != nil {
+		t.Fatalf("batch put override failed: %v", err)
+	}
+
+	for _, v := range test_values {
+		data, err := db.Get([]byte(v))
+		if err != nil {
+			t.Fatalf("get failed: %v", err)
+		}
+		if !bytes.Equal(data, []byte("?")) {
+			t.Fatalf("get returned wrong result, got %q expected ?", string(data))
+		}
+	}
+}
+
